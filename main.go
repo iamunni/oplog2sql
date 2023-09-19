@@ -29,6 +29,8 @@ func GenerateSql(oplog string) (string, error) {
 		return generateInsertSql(opLogEntry)
 	case "u":
 		return generateupdateSql(opLogEntry)
+	case "d":
+		return generateDeleteSql(opLogEntry)
 	}
 
 	return "", nil
@@ -80,6 +82,16 @@ func generateupdateSql(opLogEntry OpLogEntry) (string, error) {
 		whereColumnValues = append(whereColumnValues, fmt.Sprintf("%s = %s", columnName, columnValueToString(columnValue)))
 	}
 
+	sql = fmt.Sprintf("%s WHERE %s;", sql, strings.Join(whereColumnValues, " AND "))
+	return sql, nil
+}
+
+func generateDeleteSql(opLogEntry OpLogEntry) (string, error) {
+	sql := fmt.Sprintf("DELETE FROM %s", opLogEntry.Namespace)
+	whereColumnValues := make([]string, 0, len(opLogEntry.Object))
+	for columnName, columnValue := range opLogEntry.Object {
+		whereColumnValues = append(whereColumnValues, fmt.Sprintf("%s = %s", columnName, columnValueToString(columnValue)))
+	}
 	sql = fmt.Sprintf("%s WHERE %s;", sql, strings.Join(whereColumnValues, " AND "))
 	return sql, nil
 }

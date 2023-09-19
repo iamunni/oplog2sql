@@ -93,6 +93,18 @@ func TestGenerateInsertSql(t *testing.T) {
 			want:    "UPDATE test.student SET roll_no = NULL WHERE _id = '635b79e231d82a8ab1de863b';",
 			wantErr: false,
 		},
+		{
+			name: "Delete operation",
+			oplog: `{
+				"op": "d",
+				"ns": "test.student",
+				"o": {
+				  "_id": "635b79e231d82a8ab1de863b"
+				}
+			  }`,
+			want:    "DELETE FROM test.student WHERE _id = '635b79e231d82a8ab1de863b';",
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
