@@ -20,18 +20,45 @@ type OpLogEntry struct {
 
 func GenerateSql(oplog string) ([]string, error) {
 	sqls := []string{}
-	var opLogEntry OpLogEntry
-	if err := json.Unmarshal([]byte(oplog), &opLogEntry); err != nil {
-		return sqls, err
+	var opLogEntries []OpLogEntry
+	if err := json.Unmarshal([]byte(oplog), &opLogEntries); err != nil {
+		var opLogEntry OpLogEntry
+		if err := json.Unmarshal([]byte(oplog), &opLogEntry); err != nil {
+			return sqls, err
+		}
+		opLogEntries = append(opLogEntries, opLogEntry)
 	}
+
+	opLogMap := make(map[string]bool)
+
+	for _, opLogEntry := range opLogEntries {
+		sql, err := generteSql(opLogEntry, opLogMap)
+		if err != nil {
+			return sqls, err
+		}
+		sqls = append(sqls, sql...)
+	}
+
+	return sqls, nil
+}
+
+func generteSql(opLogEntry OpLogEntry, opLogMap map[string]bool) ([]string, error) {
+	sqls := []string{}
 
 	switch opLogEntry.Operation {
 	case "i":
 		// Create Schema
-		sqls = append(sqls, generateCreateSchemaSql(opLogEntry))
+		schema := strings.Split(opLogEntry.Namespace, ".")[0]
+		if exists := opLogMap[schema]; !exists {
+			sqls = append(sqls, generateCreateSchemaSql(schema))
+			opLogMap[schema] = true
+		}
 
 		//Create table
-		sqls = append(sqls, generateCreateTableSql(opLogEntry))
+		if exists := opLogMap[opLogEntry.Namespace]; !exists {
+			sqls = append(sqls, generateCreateTableSql(opLogEntry))
+			opLogMap[opLogEntry.Namespace] = true
+		}
 
 		sql, err := generateInsertSql(opLogEntry)
 		if err != nil {
@@ -55,8 +82,7 @@ func GenerateSql(oplog string) ([]string, error) {
 	return sqls, nil
 }
 
-func generateCreateSchemaSql(opLogEntry OpLogEntry) string {
-	schema := strings.Split(opLogEntry.Namespace, ".")[0]
+func generateCreateSchemaSql(schema string) string {
 	return fmt.Sprintf("CREATE SCHEMA %s;", schema)
 }
 
