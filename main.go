@@ -56,8 +56,10 @@ func generteSql(opLogEntry OpLogEntry, opLogMap map[string]bool) ([]string, erro
 
 		//Create table
 		if exists := opLogMap[opLogEntry.Namespace]; !exists {
-			sqls = append(sqls, generateCreateTableSql(opLogEntry))
+			sqls = append(sqls, generateCreateTableSql(opLogEntry, opLogMap))
 			opLogMap[opLogEntry.Namespace] = true
+		} else if isEligibleForAlterTable(opLogEntry, opLogMap) {
+			sqls = append(sqls, generateAlterTableSql(opLogEntry, opLogMap))
 		}
 
 		sql, err := generateInsertSql(opLogEntry)
@@ -86,7 +88,7 @@ func generateCreateSchemaSql(schema string) string {
 	return fmt.Sprintf("CREATE SCHEMA %s;", schema)
 }
 
-func generateCreateTableSql(opLogEntry OpLogEntry) string {
+func generateCreateTableSql(opLogEntry OpLogEntry, opLogMap map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("CREATE TABLE %s (", opLogEntry.Namespace))
 	columnNames := getColumnNames(opLogEntry.Object)
@@ -94,10 +96,40 @@ func generateCreateTableSql(opLogEntry OpLogEntry) string {
 	for _, columnName := range columnNames {
 		columnValue := opLogEntry.Object[columnName]
 		columnDataType := getColumnSqlDataType(columnName, columnValue)
+		cacheKey := fmt.Sprintf("%s.%s", opLogEntry.Namespace, columnName)
+		opLogMap[cacheKey] = true
 		sb.WriteString(fmt.Sprintf("%s%s %s", seperator, columnName, columnDataType))
 		seperator = ", "
 	}
 	sb.WriteString(");")
+	return sb.String()
+}
+
+func isEligibleForAlterTable(opLogEntry OpLogEntry, opLogMap map[string]bool) bool {
+	columnNames := getColumnNames(opLogEntry.Object)
+	for _, columnName := range columnNames {
+		cacheKey := fmt.Sprintf("%s.%s", opLogEntry.Namespace, columnName)
+		if !opLogMap[cacheKey] {
+			return true
+		}
+	}
+	return false
+}
+
+func generateAlterTableSql(opLogEntry OpLogEntry, opLogMap map[string]bool) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("ALTER TABLE %s", opLogEntry.Namespace))
+	seperator := " "
+	for columnName := range opLogEntry.Object {
+		columnValue := opLogEntry.Object[columnName]
+		columnDataType := getColumnSqlDataType(columnName, columnValue)
+		cacheKey := fmt.Sprintf("%s.%s", opLogEntry.Namespace, columnName)
+		if !opLogMap[cacheKey] {
+			sb.WriteString(fmt.Sprintf("%sADD COLUMN %s %s", seperator, columnName, columnDataType))
+			seperator = ", "
+		}
+	}
+	sb.WriteString(";")
 	return sb.String()
 }
 
