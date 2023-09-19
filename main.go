@@ -18,31 +18,85 @@ type OpLogEntry struct {
 	Object2   map[string]interface{} `json:"o2"`
 }
 
-func GenerateSql(oplog string) (string, error) {
+func GenerateSql(oplog string) ([]string, error) {
+	sqls := []string{}
 	var opLogEntry OpLogEntry
 	if err := json.Unmarshal([]byte(oplog), &opLogEntry); err != nil {
-		return "", err
+		return sqls, err
 	}
 
 	switch opLogEntry.Operation {
 	case "i":
-		return generateInsertSql(opLogEntry)
+		// Create Schema
+		sqls = append(sqls, generateCreateSchemaSql(opLogEntry))
+
+		//Create table
+		sqls = append(sqls, generateCreateTableSql(opLogEntry))
+
+		sql, err := generateInsertSql(opLogEntry)
+		if err != nil {
+			return sqls, err
+		}
+		sqls = append(sqls, sql)
 	case "u":
-		return generateupdateSql(opLogEntry)
+		sql, err := generateUpdateSql(opLogEntry)
+		if err != nil {
+			return sqls, err
+		}
+		sqls = append(sqls, sql)
 	case "d":
-		return generateDeleteSql(opLogEntry)
+		sql, err := generateDeleteSql(opLogEntry)
+		if err != nil {
+			return sqls, err
+		}
+		sqls = append(sqls, sql)
 	}
 
-	return "", nil
+	return sqls, nil
+}
+
+func generateCreateSchemaSql(opLogEntry OpLogEntry) string {
+	schema := strings.Split(opLogEntry.Namespace, ".")[0]
+	return fmt.Sprintf("CREATE SCHEMA %s;", schema)
+}
+
+func generateCreateTableSql(opLogEntry OpLogEntry) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("CREATE TABLE %s (", opLogEntry.Namespace))
+	columnNames := getColumnNames(opLogEntry.Object)
+	seperator := ""
+	for _, columnName := range columnNames {
+		columnValue := opLogEntry.Object[columnName]
+		columnDataType := getColumnSqlDataType(columnName, columnValue)
+		sb.WriteString(fmt.Sprintf("%s%s %s", seperator, columnName, columnDataType))
+		seperator = ", "
+	}
+	sb.WriteString(");")
+	return sb.String()
+}
+
+func getColumnSqlDataType(columnName string, columnValue interface{}) string {
+	colDataType := ""
+	switch columnValue.(type) {
+	case int, int8, int16, int32, int64:
+		colDataType = "INTEGER"
+	case float32, float64:
+		colDataType = "FLOAT"
+	case bool:
+		colDataType = "BOOLEAN"
+	default:
+		colDataType = "VARCHAR(255)"
+	}
+
+	if columnName == "_id" {
+		colDataType += " PRIMARY KEY"
+	}
+	return colDataType
 }
 
 func generateInsertSql(opLogEntry OpLogEntry) (string, error) {
 	sql := fmt.Sprintf("INSERT INTO %s", opLogEntry.Namespace)
-	columnNames := make([]string, 0, len(opLogEntry.Object))
-	for columnName := range opLogEntry.Object {
-		columnNames = append(columnNames, columnName)
-	}
-	sort.Strings(columnNames)
+	columnNames := getColumnNames(opLogEntry.Object)
 
 	columnValues := make([]string, 0, len(opLogEntry.Object))
 	for _, columnName := range columnNames {
@@ -52,7 +106,16 @@ func generateInsertSql(opLogEntry OpLogEntry) (string, error) {
 	return sql, nil
 }
 
-func generateupdateSql(opLogEntry OpLogEntry) (string, error) {
+func getColumnNames(data map[string]interface{}) []string {
+	columnNames := make([]string, 0, len(data))
+	for columnName := range data {
+		columnNames = append(columnNames, columnName)
+	}
+	sort.Strings(columnNames)
+	return columnNames
+}
+
+func generateUpdateSql(opLogEntry OpLogEntry) (string, error) {
 	sql := fmt.Sprintf("UPDATE %s SET", opLogEntry.Namespace)
 	diffMap, ok := opLogEntry.Object["diff"].(map[string]interface{})
 	if !ok {
